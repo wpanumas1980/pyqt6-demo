@@ -1,0 +1,76 @@
+{
+  "database": {
+    "host": "localhost",
+    "port": 1433,
+    "user": "sa",
+    "password": "admin@supersecret123",
+    "database": "devBSA"
+  },
+  "Prefix": "ERP_ERPCONV",
+  "revision": 1,
+  "module_config": [
+    {
+      "module_name": "PA",
+      "table_name": "EmpPersonalData",
+      "usecols": [
+        "EmployeeId",
+        "Title TH",
+        "TitleAcademicCode",
+        "TitleMedicalCode",
+        "TitleMilitaryCode",
+        "TitleRoyalCode",
+        "TitleSecondaryCode",
+        "FirstNameTH",
+        "MiddleNameTH",
+        "LastNameTH",
+        "Title EN",
+        "TitleAcademicCodeEN",
+        "TitleMedicalCodeEN",
+        "TitleMilitaryCodeEN",
+        "TitleRoyalCodeEN",
+        "FirstNameEN",
+        "MiddleNameEN",
+        "LastNameEN",
+        "Gender",
+        "BirthDay",
+        "MaritalStatus",
+        "NoOfChild",
+        "FullName",
+        "IdCard",
+        "BeginDate",
+        "EndDate"
+      ],
+      "skiprows": 3,
+      "enabled": true
+    },
+    {
+      "module_name": "CT",
+      "table_name": "EmpPersonalData",
+      "usecols": [
+        "No",
+        "PONumber",
+        "ContractName",
+        "CostCenter",
+        "EmployeeCode",
+        "Title",
+        "FirstName",
+        "LastName",
+        "Department",
+        "BusinessGroup",
+        "EmployeeCodeHRO",
+        "FullNameHRO",
+        "EvaluatorName",
+        "EvaluatorEmail",
+        "EvaluatorGroup",
+        "BSA_Position",
+        "BSA_Department",
+        "CompanyNameTH",
+        "CompanyShortName",
+        "WorkAgeForEvaluation",
+        "SourceSheet"
+      ],
+      "skiprows": 3,
+      "enabled": true
+    }
+  ]
+}
