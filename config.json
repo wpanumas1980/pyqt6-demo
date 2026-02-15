@@ -11,66 +11,75 @@
   "module_config": [
     {
       "module_name": "PA",
-      "table_name": "EmpPersonalData",
-      "usecols": [
-        "EmployeeId",
-        "Title TH",
-        "TitleAcademicCode",
-        "TitleMedicalCode",
-        "TitleMilitaryCode",
-        "TitleRoyalCode",
-        "TitleSecondaryCode",
-        "FirstNameTH",
-        "MiddleNameTH",
-        "LastNameTH",
-        "Title EN",
-        "TitleAcademicCodeEN",
-        "TitleMedicalCodeEN",
-        "TitleMilitaryCodeEN",
-        "TitleRoyalCodeEN",
-        "FirstNameEN",
-        "MiddleNameEN",
-        "LastNameEN",
-        "Gender",
-        "BirthDay",
-        "MaritalStatus",
-        "NoOfChild",
-        "FullName",
-        "IdCard",
-        "BeginDate",
-        "EndDate"
-      ],
-      "skiprows": 3,
-      "enabled": true
+      "enabled": true,
+      "tables": [
+        {
+          "table_name": "EmpPersonalData",
+          "usecols": [
+            "EmployeeId",
+            "Title TH",
+            "TitleAcademicCode",
+            "TitleMedicalCode",
+            "TitleMilitaryCode",
+            "TitleRoyalCode",
+            "TitleSecondaryCode",
+            "FirstNameTH",
+            "MiddleNameTH",
+            "LastNameTH",
+            "Title EN",
+            "TitleAcademicCodeEN",
+            "TitleMedicalCodeEN",
+            "TitleMilitaryCodeEN",
+            "TitleRoyalCodeEN",
+            "FirstNameEN",
+            "MiddleNameEN",
+            "LastNameEN",
+            "Gender",
+            "BirthDay",
+            "MaritalStatus",
+            "NoOfChild",
+            "FullName",
+            "IdCard",
+            "BeginDate",
+            "EndDate"
+          ],
+          "skiprows": 3
+        },
+        {
+          "table_name": "EmpAction",
+          "usecols": [
+            "EmployeeId",
+            "FullName",
+            "ActionTypeCode",
+            "ActionTypeName",
+            "ReasonCode",
+            "ReasonName",
+            "Remark",
+            "BeginDate",
+            "EndDate"
+          ],
+          "skiprows": 3
+        }
+      ]
     },
     {
       "module_name": "CT",
-      "table_name": "EmpPersonalData",
-      "usecols": [
-        "No",
-        "PONumber",
-        "ContractName",
-        "CostCenter",
-        "EmployeeCode",
-        "Title",
-        "FirstName",
-        "LastName",
-        "Department",
-        "BusinessGroup",
-        "EmployeeCodeHRO",
-        "FullNameHRO",
-        "EvaluatorName",
-        "EvaluatorEmail",
-        "EvaluatorGroup",
-        "BSA_Position",
-        "BSA_Department",
-        "CompanyNameTH",
-        "CompanyShortName",
-        "WorkAgeForEvaluation",
-        "SourceSheet"
-      ],
-      "skiprows": 3,
-      "enabled": true
+      "enabled": true,
+      "tables": [
+        {
+          "table_name": "EmpContractAssignment",
+          "usecols": [
+            "No.",
+            "รหัสพนักงาน",
+            "ชื่อ-นามสกุล พนักงาน",
+            "ชื่อเต็มบริษัท(เดิม)",
+            "ชื่อย่อบริษัท(เดิม)",
+            "ชื่อเต็มบริษัท(ใหม่)",
+            "ชื่อย่อบริษัท(ใหม่)"
+          ],
+          "skiprows": 3
+        }
+      ]
     }
   ]
 }
