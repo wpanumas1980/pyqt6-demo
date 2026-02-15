@@ -16,7 +16,7 @@ from PyQt6.QtGui import QFont
 
 
 class TestConnectionWorker(QThread):
-    """Thread สำหรับทดสอบการเชื่อมต่อ Database"""
+    """Thread for testing Database connection"""
     finished = pyqtSignal(bool, str)
 
     def __init__(self, db_config):
@@ -30,11 +30,11 @@ class TestConnectionWorker(QThread):
                 f"mssql+pymssql://{self.db_config['user']}:{safe_password}"
                 f"@{self.db_config['host']}:1433/{self.db_config['db_name']}?charset=utf8"
             )
-            # กำหนด timeout สั้นๆ สำหรับการทดสอบ
+            # Set a short timeout for testing
             engine = create_engine(conn_str, connect_args={'timeout': 10})
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            self.finished.emit(True, "เชื่อมต่อฐานข้อมูลสำเร็จ!")
+            self.finished.emit(True, "Database connected successfully!")
         except Exception as e:
             self.finished.emit(False, str(e))
 
@@ -47,10 +47,10 @@ class ImportWorker(QThread):
         super().__init__()
         self.db_config = db_config
         self.file_info = file_info  # {path, password}
-        self.mod_cfg = mod_cfg      # จาก config.json module_config
+        self.mod_cfg = mod_cfg      # from config.json module_config
         self.global_prefix = global_prefix
         self.revision = revision
-        self.dest_table_name = dest_table_name  # ชื่อ table ที่ user เลือกจาก dropdown
+        self.dest_table_name = dest_table_name
 
     def clean_special_characters(self, text_val):
         if not isinstance(text_val, str):
@@ -61,13 +61,13 @@ class ImportWorker(QThread):
         try:
             module_name = self.mod_cfg.get('module_name')
 
-            # 1. เริ่มกระบวนการ
-            self.log_signal.emit(f"🚀 เริ่มกระบวนการสำหรับ Module: {module_name}")
+            # 1. Process Start
+            self.log_signal.emit(f"🚀 Starting process for Module: {module_name}")
 
-            # 2. การจัดการไฟล์ Excel & การถอดรหัส
+            # 2. Excel Handling & Decryption
             excel_source = self.file_info['path']
             if self.file_info['password']:
-                self.log_signal.emit("🔐 กำลังถอดรหัสไฟล์ Excel...")
+                self.log_signal.emit("🔐 Decrypting Excel file...")
                 decrypted_data = io.BytesIO()
                 with open(self.file_info['path'], "rb") as f:
                     office_file = msoffcrypto.OfficeFile(f)
@@ -75,8 +75,8 @@ class ImportWorker(QThread):
                     office_file.decrypt(decrypted_data)
                 excel_source = decrypted_data
 
-            # 3. อ่านข้อมูลจาก Excel
-            self.log_signal.emit("📊 กำลังโหลดข้อมูลจาก Excel...")
+            # 3. Read Data from Excel
+            self.log_signal.emit("📊 Loading data from Excel...")
             df = pd.read_excel(
                 excel_source,
                 skiprows=self.mod_cfg.get('skiprows', 0),
@@ -86,15 +86,15 @@ class ImportWorker(QThread):
             )
 
             row_count = len(df)
-            self.log_signal.emit(f"📈 ตรวจพบข้อมูลทั้งหมด {row_count} แถว")
+            self.log_signal.emit(f"📈 Found {row_count} rows in Excel")
 
-            # 4. ตรวจสอบอักขระพิเศษ
-            self.log_signal.emit("🔍 ตรวจสอบและทำความสะอาดอักขระพิเศษ...")
+            # 4. Clean Special Characters
+            self.log_signal.emit("🔍 Cleaning special characters...")
             for col in df.columns:
                 df[col] = df[col].apply(self.clean_special_characters)
 
-            # 5. เชื่อมต่อ Database
-            self.log_signal.emit("💾 กำลังเชื่อมต่อฐานข้อมูล MS SQL...")
+            # 5. Connect to Database
+            self.log_signal.emit("💾 Connecting to MS SQL Database...")
             safe_password = urllib.parse.quote_plus(self.db_config['password'])
             conn_str = (
                 f"mssql+pymssql://{self.db_config['user']}:{safe_password}"
@@ -102,19 +102,19 @@ class ImportWorker(QThread):
             )
             engine = create_engine(conn_str, connect_args={'timeout': 30})
 
-            # 6. ตรวจสอบ/สร้าง Schema (ใช้ Prefix เป็น Schema Name)
+            # 6. Check/Create Schema
             schema_name = self.global_prefix
             with engine.connect() as conn:
-                self.log_signal.emit(f"🛠 ตรวจสอบ Schema: {schema_name}")
+                self.log_signal.emit(f"🛠 Checking Schema: {schema_name}")
                 conn.execute(text(
                     f"IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = '{schema_name}') "
                     f"EXEC('CREATE SCHEMA {schema_name}')"
                 ))
                 conn.commit()
 
-            # 7. บันทึกข้อมูล — ใช้ชื่อ table จาก dropdown ที่ user เลือก
+            # 7. Save Data
             dest_table = f"Raw{module_name}{self.revision}{self.dest_table_name}"
-            self.log_signal.emit(f"📝 กำลังเขียนข้อมูลลงตาราง {schema_name}.{dest_table}...")
+            self.log_signal.emit(f"📝 Writing data to table {schema_name}.{dest_table}...")
 
             dtype_map = {col: NVARCHAR(500) for col in df.columns}
             df.to_sql(
@@ -122,14 +122,14 @@ class ImportWorker(QThread):
                 if_exists='replace', index=False, dtype=dtype_map
             )
 
-            self.finished.emit(f"✅ สำเร็จ! นำเข้าข้อมูล {row_count} แถว → {schema_name}.{dest_table}")
+            self.finished.emit(f"✅ Success! Imported {row_count} rows → {schema_name}.{dest_table}")
 
         except Exception as e:
-            self.finished.emit(f"❌ ข้อผิดพลาด: {str(e)}")
+            self.finished.emit(f"❌ Error: {str(e)}")
 
 
 class FetchTablesWorker(QThread):
-    """Thread สำหรับดึงรายชื่อ Table จาก Database"""
+    """Thread for fetching Table list from Database"""
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
@@ -204,8 +204,8 @@ class App(QMainWindow):
         # Table dropdown + Refresh button
         table_box = QHBoxLayout()
         self.combo_table = QComboBox()
-        self.combo_table.setEditable(True)  # อนุญาตให้พิมพ์ชื่อ table เองได้
-        self.combo_table.setPlaceholderText("-- เลือก Table หรือพิมพ์ชื่อเอง --")
+        self.combo_table.setEditable(True)
+        self.combo_table.setPlaceholderText("-- Select Table or Type Manually --")
         self.btn_refresh_tables = QPushButton("🔄 Refresh List")
         self.btn_refresh_tables.setFixedWidth(120)
         self.btn_refresh_tables.clicked.connect(self.fetch_tables_from_db)
@@ -275,12 +275,12 @@ class App(QMainWindow):
         }
 
         if not all([db_config['host'], db_config['db_name'], db_config['user']]):
-            QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาระบุ Server, Database และ User ให้ครบถ้วน")
+            QMessageBox.warning(self, "Missing Info", "Please provide Server, Database, and User info.")
             return
 
         self.btn_test_db.setEnabled(False)
         self.btn_test_db.setText("⏳ Testing...")
-        self.log_display.append("📡 กำลังทดสอบการเชื่อมต่อ...")
+        self.log_display.append("📡 Testing connection...")
 
         self.conn_worker = TestConnectionWorker(db_config)
         self.conn_worker.finished.connect(self.on_test_connection_finished)
@@ -294,8 +294,8 @@ class App(QMainWindow):
             self.log_display.append(f"✅ {message}")
             QMessageBox.information(self, "Success", message)
         else:
-            self.log_display.append(f"❌ เชื่อมต่อล้มเหลว: {message}")
-            QMessageBox.critical(self, "Connection Error", f"ไม่สามารถเชื่อมต่อ Database:\n{message}")
+            self.log_display.append(f"❌ Connection Failed: {message}")
+            QMessageBox.critical(self, "Connection Error", f"Cannot connect to Database:\n{message}")
 
     # ────────────────────────────────────────────
     # Config Loading
@@ -304,7 +304,7 @@ class App(QMainWindow):
         try:
             config_path = 'config.json'
             if not os.path.exists(config_path):
-                self.log_display.append("⚠️ ไม่พบไฟล์ config.json")
+                self.log_display.append("⚠️ config.json not found")
                 return
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.config_data = json.load(f)
@@ -315,21 +315,19 @@ class App(QMainWindow):
             self.db_user.setText(db.get('user', 'sa'))
             self.db_pass.setText(db.get('password', ''))
 
-            # โหลด Module dropdown จาก config
             modules = self.config_data.get('module_config', [])
             self.combo_module.clear()
             for m in modules:
                 if m.get('enabled', True):
                     self.combo_module.addItem(m.get('module_name'), m)
 
-            # ตั้งค่า default table name จาก config ของ module แรก (ถ้ามี)
             if modules:
                 default_table = modules[0].get('table_name', '')
                 self.combo_table.setCurrentText(default_table)
 
-            self.log_display.append("✅ โหลด Config สำเร็จ")
+            self.log_display.append("✅ Config loaded successfully")
         except Exception as e:
-            self.log_display.append(f"❌ โหลด Config ผิดพลาด: {str(e)}")
+            self.log_display.append(f"❌ Config loading error: {str(e)}")
 
     # ────────────────────────────────────────────
     # Fetch Tables from Database
@@ -343,12 +341,12 @@ class App(QMainWindow):
         }
 
         if not db_config['host'] or not db_config['db_name']:
-            QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาระบุ Server Address และ Database Name")
+            QMessageBox.warning(self, "Incomplete Data", "Please specify Server Address and Database Name")
             return
 
         self.btn_refresh_tables.setEnabled(False)
         self.btn_refresh_tables.setText("⏳ Loading...")
-        self.log_display.append("🔄 กำลังดึงรายชื่อ Table จาก Database...")
+        self.log_display.append("🔄 Fetching table list from Database...")
 
         self.table_worker = FetchTablesWorker(db_config)
         self.table_worker.finished.connect(self.on_tables_fetched)
@@ -362,7 +360,7 @@ class App(QMainWindow):
         current_text = self.combo_table.currentText()
         self.combo_table.clear()
         self.combo_table.addItems(tables)
-        self.log_display.append(f"✅ พบ {len(tables)} ตาราง")
+        self.log_display.append(f"✅ Found {len(tables)} tables")
 
         if current_text:
             idx = self.combo_table.findText(current_text)
@@ -374,8 +372,8 @@ class App(QMainWindow):
     def on_tables_fetch_error(self, error_msg):
         self.btn_refresh_tables.setEnabled(True)
         self.btn_refresh_tables.setText("🔄 Refresh List")
-        self.log_display.append(f"❌ ดึงรายชื่อ Table ผิดพลาด: {error_msg}")
-        QMessageBox.critical(self, "Connection Error", f"ไม่สามารถเชื่อมต่อ Database:\n{error_msg}")
+        self.log_display.append(f"❌ Error fetching tables: {error_msg}")
+        QMessageBox.critical(self, "Connection Error", f"Cannot connect to Database:\n{error_msg}")
 
     # ────────────────────────────────────────────
     # File Browse
@@ -395,11 +393,11 @@ class App(QMainWindow):
         dest_table_name = self.combo_table.currentText().strip()
 
         if not self.txt_file.text() or not mod_cfg:
-            QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาเลือกไฟล์และ Module")
+            QMessageBox.warning(self, "Incomplete Data", "Please select an Excel file and a Module.")
             return
 
         if not dest_table_name:
-            QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาเลือกหรือระบุชื่อ Destination Table")
+            QMessageBox.warning(self, "Incomplete Data", "Please select or type a Destination Table.")
             return
 
         if '.' in dest_table_name:
@@ -432,7 +430,7 @@ class App(QMainWindow):
         self.btn_run.setEnabled(True)
         self.log_display.append("-" * 40)
         self.log_display.append(message)
-        QMessageBox.information(self, "สถานะการทำงาน", message)
+        QMessageBox.information(self, "Process Status", message)
 
     # ────────────────────────────────────────────
     # Export Log
@@ -440,7 +438,7 @@ class App(QMainWindow):
     def export_log(self):
         log_content = self.log_display.toPlainText()
         if not log_content.strip():
-            QMessageBox.warning(self, "ไม่มีข้อมูล", "ยังไม่มี Log ให้ Export")
+            QMessageBox.warning(self, "No Data", "No log data available to export.")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
@@ -449,7 +447,7 @@ class App(QMainWindow):
         if file_path:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(log_content)
-            QMessageBox.information(self, "สำเร็จ", f"บันทึก Log เรียบร้อย:\n{file_path}")
+            QMessageBox.information(self, "Success", f"Log saved successfully to:\n{file_path}")
 
 
 if __name__ == "__main__":
