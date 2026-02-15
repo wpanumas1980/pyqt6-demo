@@ -47,7 +47,7 @@ class ImportWorker(QThread):
         self.db_config = db_config
         self.file_info = file_info
         self.module_name = module_name
-        self.table_cfg = table_cfg  # เก็บ config ของ table เฉพาะอันที่เลือก
+        self.table_cfg = table_cfg 
         self.global_prefix = global_prefix
         self.revision = revision
 
@@ -175,7 +175,10 @@ class App(QMainWindow):
         self.db_user = QLineEdit()
         self.db_pass = QLineEdit()
         self.db_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.db_name = QLineEdit() # ย้ายลงมาไว้ข้างล่าง Password
+        
+        # เปลี่ยนเป็น QComboBox (Dropdown)
+        self.db_name = QComboBox()
+        self.db_name.setEditable(True) # พิมพ์เองได้หากไม่มีใน List
         
         self.btn_test_db = QPushButton("⚡ Test Connection")
         self.btn_test_db.setFixedWidth(160)
@@ -184,7 +187,7 @@ class App(QMainWindow):
         db_form.addRow("Server Address:", self.db_host)
         db_form.addRow("Username:", self.db_user)
         db_form.addRow("Password:", self.db_pass)
-        db_form.addRow("Database Name:", self.db_name) # แถวใหม่อยู่ตรงนี้
+        db_form.addRow("Database Name:", self.db_name) # อยู่ด้านล่าง Password ตามที่ต้องการ
         db_form.addRow("", self.btn_test_db)
         
         db_group.setLayout(db_form)
@@ -194,12 +197,10 @@ class App(QMainWindow):
         ex_group = QGroupBox("2. Configuration & Excel File")
         ex_form = QFormLayout()
 
-        # Module dropdown
         self.combo_module = QComboBox()
         self.combo_module.currentIndexChanged.connect(self.on_module_changed)
         ex_form.addRow("Select Module:", self.combo_module)
 
-        # Table dropdown (ดึงจาก JSON หรือ DB)
         table_box = QHBoxLayout()
         self.combo_table = QComboBox()
         self.combo_table.setEditable(True)
@@ -213,7 +214,6 @@ class App(QMainWindow):
         table_box.addWidget(self.btn_refresh_tables)
         ex_form.addRow("Destination Table:", table_box)
 
-        # Excel file browse
         file_box = QHBoxLayout()
         self.txt_file = QLineEdit()
         self.txt_file.setReadOnly(True)
@@ -223,7 +223,6 @@ class App(QMainWindow):
         file_box.addWidget(btn_browse)
         ex_form.addRow("Excel File:", file_box)
 
-        # Excel password
         self.txt_excel_pass = QLineEdit()
         self.txt_excel_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.txt_excel_pass.setPlaceholderText("ใส่รหัสผ่านหากไฟล์ถูกล็อก (ถ้ามี)")
@@ -232,7 +231,6 @@ class App(QMainWindow):
         ex_group.setLayout(ex_form)
         main_layout.addWidget(ex_group)
 
-        # ── ปุ่มสั่งงาน ──
         btn_layout = QHBoxLayout()
         self.btn_run = QPushButton("💾 SAVE TO DATABASE")
         self.btn_run.setFixedHeight(55)
@@ -248,7 +246,6 @@ class App(QMainWindow):
         btn_layout.addWidget(self.btn_export, 1)
         main_layout.addLayout(btn_layout)
 
-        # ── ส่วนแสดง Log ──
         main_layout.addWidget(QLabel("Process Logs:"))
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
@@ -295,14 +292,20 @@ class App(QMainWindow):
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.config_data = json.load(f)
 
-            # โหลดค่า Database
-            db = self.config_data.get('database', {})
-            self.db_host.setText(db.get('host', 'localhost'))
-            self.db_name.setText(db.get('database', 'master'))
-            self.db_user.setText(db.get('user', 'sa'))
-            self.db_pass.setText(db.get('password', ''))
+            db_cfg = self.config_data.get('database', {})
+            self.db_host.setText(db_cfg.get('host', 'localhost'))
+            self.db_user.setText(db_cfg.get('user', 'sa'))
+            self.db_pass.setText(db_cfg.get('password', ''))
 
-            # โหลดรายการ Modules (เฉพาะที่ enabled)
+            # ปรับปรุงการโหลด Database Name (รองรับทั้ง List และ String)
+            self.db_name.clear()
+            db_val = db_cfg.get('database', [])
+            if isinstance(db_val, list):
+                self.db_name.addItems(db_val)
+            elif isinstance(db_val, str):
+                self.db_name.addItem(db_val)
+            
+            # โหลดรายการ Modules
             modules = self.config_data.get('module_config', [])
             self.combo_module.clear()
             for m in modules:
@@ -314,7 +317,6 @@ class App(QMainWindow):
             self.log_display.append(f"❌ ผิดพลาดในการโหลด Config: {str(e)}")
 
     def on_module_changed(self):
-        """เมื่อเปลี่ยน Module ให้ Update รายการโต๊ะใน Dropdown"""
         mod_cfg = self.combo_module.currentData()
         if not mod_cfg:
             return
@@ -322,7 +324,6 @@ class App(QMainWindow):
         self.combo_table.clear()
         tables = mod_cfg.get('tables', [])
         for t in tables:
-            # เก็บ config ของแต่ละ table ไว้ใน data ของ item
             self.combo_table.addItem(t.get('table_name'), t)
         
         self.log_display.append(f"📁 เปลี่ยนเป็น Module: {mod_cfg.get('module_name')} (พบ {len(tables)} ตาราง)")
@@ -345,13 +346,9 @@ class App(QMainWindow):
     def on_tables_fetched(self, tables):
         self.btn_refresh_tables.setEnabled(True)
         self.btn_refresh_tables.setText("🔄 DB Refresh")
-        
-        # เก็บค่าปัจจุบันไว้ก่อน
         current_text = self.combo_table.currentText()
-        # เพิ่มรายชื่อจาก DB เข้าไปใน Dropdown (ต่อท้าย)
         for t in tables:
-            self.combo_table.addItem(t, None) # None เพราะไม่ได้มาจาก config.json
-            
+            self.combo_table.addItem(t, None)
         self.log_display.append(f"✅ ดึงรายชื่อ {len(tables)} ตารางจากฐานข้อมูลสำเร็จ")
         self.combo_table.setCurrentText(current_text)
 
@@ -370,14 +367,13 @@ class App(QMainWindow):
     def get_db_config(self):
         return {
             'host': self.db_host.text().strip(),
-            'db_name': self.db_name.text().strip(),
+            'db_name': self.db_name.currentText().strip(), # ดึงค่าจาก currentText ของ ComboBox
             'user': self.db_user.text().strip(),
             'password': self.db_pass.text().strip(),
         }
 
     def start_process(self):
         mod_cfg = self.combo_module.currentData()
-        # ตรวจสอบว่า Table ที่เลือกมี config ใน JSON ไหม
         table_selection_data = self.combo_table.currentData()
         dest_table_raw_name = self.combo_table.currentText().strip()
 
@@ -389,11 +385,9 @@ class App(QMainWindow):
             QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาระบุชื่อตารางปลายทาง")
             return
 
-        # เตรียม Table Config (ถ้าเลือกจาก List จะมี data, ถ้าพิมพ์เองจะใช้ค่า Default)
         if isinstance(table_selection_data, dict):
             final_table_cfg = table_selection_data
         else:
-            # กรณีพิมพ์เอง ให้สร้าง config หลอกๆ ขึ้นมา
             final_table_cfg = {
                 "table_name": dest_table_raw_name.split('.')[-1],
                 "usecols": None,
@@ -411,7 +405,6 @@ class App(QMainWindow):
         self.btn_run.setEnabled(False)
         self.log_display.clear()
 
-        # สร้าง Worker โดยส่ง Table Config เฉพาะอันที่เลือกเข้าไป
         self.worker = ImportWorker(
             db_config, file_info, mod_cfg.get('module_name'), final_table_cfg, prefix, revision
         )
