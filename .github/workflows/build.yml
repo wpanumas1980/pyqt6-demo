@@ -10,23 +10,42 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # 1️⃣ Checkout source
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.11
 
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pymssql
 
+      # 4️⃣ Build EXE (ใส่ hidden-import กัน pymssql หลุด)
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name excel2mssql main.py
+          pyinstaller ^
+            --noconfirm ^
+            --onefile ^
+            --windowed ^
+            --name excel2mssql ^
+            --hidden-import=pymssql ^
+            --hidden-import=sqlalchemy ^
+            --hidden-import=pandas ^
+            --hidden-import=msoffcrypto ^
+            main.py
 
+      # 5️⃣ Debug ดูไฟล์ที่ build ได้
+      - name: List dist folder
+        run: dir dist
+
+      # 6️⃣ Upload Artifact
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
