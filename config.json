@@ -4,7 +4,7 @@
     "port": 1433,
     "user": "sa",
     "password": "admin@supersecret123",
-    "database": "devBSA"
+    "database": "testBSA"
   },
   "Prefix": "ERP_ERPCONV",
   "revision": 1,

@@ -15,6 +15,30 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
 
 
+class TestConnectionWorker(QThread):
+    """Thread สำหรับทดสอบการเชื่อมต่อ Database"""
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, db_config):
+        super().__init__()
+        self.db_config = db_config
+
+    def run(self):
+        try:
+            safe_password = urllib.parse.quote_plus(self.db_config['password'])
+            conn_str = (
+                f"mssql+pymssql://{self.db_config['user']}:{safe_password}"
+                f"@{self.db_config['host']}:1433/{self.db_config['db_name']}?charset=utf8"
+            )
+            # กำหนด timeout สั้นๆ สำหรับการทดสอบ
+            engine = create_engine(conn_str, connect_args={'timeout': 10})
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            self.finished.emit(True, "เชื่อมต่อฐานข้อมูลสำเร็จ!")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
 class ImportWorker(QThread):
     finished = pyqtSignal(str)
     log_signal = pyqtSignal(str)
@@ -154,10 +178,18 @@ class App(QMainWindow):
         self.db_user = QLineEdit()
         self.db_pass = QLineEdit()
         self.db_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        
+        # Test Connection Button
+        self.btn_test_db = QPushButton("⚡ Test Connection")
+        self.btn_test_db.setFixedWidth(150)
+        self.btn_test_db.clicked.connect(self.test_db_connection)
+        
         db_form.addRow("Server Address:", self.db_host)
         db_form.addRow("Database Name:", self.db_name)
         db_form.addRow("Username:", self.db_user)
         db_form.addRow("Password:", self.db_pass)
+        db_form.addRow("", self.btn_test_db)
+        
         db_group.setLayout(db_form)
         main_layout.addWidget(db_group)
 
@@ -174,8 +206,8 @@ class App(QMainWindow):
         self.combo_table = QComboBox()
         self.combo_table.setEditable(True)  # อนุญาตให้พิมพ์ชื่อ table เองได้
         self.combo_table.setPlaceholderText("-- เลือก Table หรือพิมพ์ชื่อเอง --")
-        self.btn_refresh_tables = QPushButton("🔄 Refresh")
-        self.btn_refresh_tables.setFixedWidth(100)
+        self.btn_refresh_tables = QPushButton("🔄 Refresh List")
+        self.btn_refresh_tables.setFixedWidth(120)
         self.btn_refresh_tables.clicked.connect(self.fetch_tables_from_db)
         table_box.addWidget(self.combo_table)
         table_box.addWidget(self.btn_refresh_tables)
@@ -226,10 +258,44 @@ class App(QMainWindow):
             background-color: #1E1E1E; 
             color: #00FF00; 
             font-family: 'Consolas', monospace; 
-            font-size: 16px; 
+            font-size: 14px; 
             padding: 10px;
         """)
         main_layout.addWidget(self.log_display)
+
+    # ────────────────────────────────────────────
+    # Test Connection Logic
+    # ────────────────────────────────────────────
+    def test_db_connection(self):
+        db_config = {
+            'host': self.db_host.text().strip(),
+            'db_name': self.db_name.text().strip(),
+            'user': self.db_user.text().strip(),
+            'password': self.db_pass.text().strip(),
+        }
+
+        if not all([db_config['host'], db_config['db_name'], db_config['user']]):
+            QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาระบุ Server, Database และ User ให้ครบถ้วน")
+            return
+
+        self.btn_test_db.setEnabled(False)
+        self.btn_test_db.setText("⏳ Testing...")
+        self.log_display.append("📡 กำลังทดสอบการเชื่อมต่อ...")
+
+        self.conn_worker = TestConnectionWorker(db_config)
+        self.conn_worker.finished.connect(self.on_test_connection_finished)
+        self.conn_worker.start()
+
+    def on_test_connection_finished(self, success, message):
+        self.btn_test_db.setEnabled(True)
+        self.btn_test_db.setText("⚡ Test Connection")
+        
+        if success:
+            self.log_display.append(f"✅ {message}")
+            QMessageBox.information(self, "Success", message)
+        else:
+            self.log_display.append(f"❌ เชื่อมต่อล้มเหลว: {message}")
+            QMessageBox.critical(self, "Connection Error", f"ไม่สามารถเชื่อมต่อ Database:\n{message}")
 
     # ────────────────────────────────────────────
     # Config Loading
@@ -269,12 +335,11 @@ class App(QMainWindow):
     # Fetch Tables from Database
     # ────────────────────────────────────────────
     def fetch_tables_from_db(self):
-        """ดึงรายชื่อ Table จาก Database แล้วใส่ใน dropdown"""
         db_config = {
-            'host': self.db_host.text(),
-            'db_name': self.db_name.text(),
-            'user': self.db_user.text(),
-            'password': self.db_pass.text(),
+            'host': self.db_host.text().strip(),
+            'db_name': self.db_name.text().strip(),
+            'user': self.db_user.text().strip(),
+            'password': self.db_pass.text().strip(),
         }
 
         if not db_config['host'] or not db_config['db_name']:
@@ -292,14 +357,13 @@ class App(QMainWindow):
 
     def on_tables_fetched(self, tables):
         self.btn_refresh_tables.setEnabled(True)
-        self.btn_refresh_tables.setText("🔄 Refresh")
+        self.btn_refresh_tables.setText("🔄 Refresh List")
 
         current_text = self.combo_table.currentText()
         self.combo_table.clear()
         self.combo_table.addItems(tables)
         self.log_display.append(f"✅ พบ {len(tables)} ตาราง")
 
-        # พยายามเลือก table เดิมที่ user เคยเลือกไว้
         if current_text:
             idx = self.combo_table.findText(current_text)
             if idx >= 0:
@@ -309,7 +373,7 @@ class App(QMainWindow):
 
     def on_tables_fetch_error(self, error_msg):
         self.btn_refresh_tables.setEnabled(True)
-        self.btn_refresh_tables.setText("🔄 Refresh")
+        self.btn_refresh_tables.setText("🔄 Refresh List")
         self.log_display.append(f"❌ ดึงรายชื่อ Table ผิดพลาด: {error_msg}")
         QMessageBox.critical(self, "Connection Error", f"ไม่สามารถเชื่อมต่อ Database:\n{error_msg}")
 
@@ -338,15 +402,14 @@ class App(QMainWindow):
             QMessageBox.warning(self, "ข้อมูลไม่ครบ", "กรุณาเลือกหรือระบุชื่อ Destination Table")
             return
 
-        # ถ้า user เลือก table แบบ schema.table ให้ตัดเอาแค่ชื่อ table
         if '.' in dest_table_name:
             dest_table_name = dest_table_name.split('.')[-1]
 
         db_config = {
-            'host': self.db_host.text(),
-            'db_name': self.db_name.text(),
-            'user': self.db_user.text(),
-            'password': self.db_pass.text(),
+            'host': self.db_host.text().strip(),
+            'db_name': self.db_name.text().strip(),
+            'user': self.db_user.text().strip(),
+            'password': self.db_pass.text().strip(),
         }
         file_info = {
             'path': self.txt_file.text(),
@@ -375,7 +438,6 @@ class App(QMainWindow):
     # Export Log
     # ────────────────────────────────────────────
     def export_log(self):
-        """Export log content to a text file"""
         log_content = self.log_display.toPlainText()
         if not log_content.strip():
             QMessageBox.warning(self, "ไม่มีข้อมูล", "ยังไม่มี Log ให้ Export")

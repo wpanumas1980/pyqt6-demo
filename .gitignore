@@ -2,3 +2,15 @@
 __pycache__/
 .ipynb_checkpoints/
 .env
+
+Data/
+logs/
+dist/
+build/
+*.egg-info/
+*.pyc
+*.pyo
+*.pyd
+*.exe
+*.dll
+sql/
