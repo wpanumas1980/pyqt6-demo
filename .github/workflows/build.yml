@@ -25,7 +25,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --onefile --windowed main.py
+          pyinstaller --noconfirm --onefile --windowed --name excel2mssql main.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
