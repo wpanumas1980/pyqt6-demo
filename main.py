@@ -5,6 +5,7 @@ import json
 import urllib.parse
 import pandas as pd
 import msoffcrypto
+from datetime import datetime
 from sqlalchemy import create_engine, text, NVARCHAR
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLineEdit, QLabel, 
@@ -75,7 +76,6 @@ class ImportWorker(QThread):
                             found_count += 1
                             excel_row = idx + 2 + self.table_cfg.get('skiprows', 0)
                             
-                            # สร้างรายละเอียด Log สำหรับแสดงผล (ใช้ repr เพื่อให้เห็น \t, \xa0)
                             log_detail = (
                                 f"แถวที่ {excel_row}:\n"
                                 f"  คอลัมน์ '{col}':\n"
@@ -189,7 +189,6 @@ class App(QMainWindow):
         ex_group = QGroupBox("2. Configuration & Excel File")
         ex_form = QFormLayout()
 
-        # ย้าย Excel File และ Password ขึ้นมาเป็นอันดับแรกในส่วนที่ 2
         file_box = QHBoxLayout()
         self.txt_file = QLineEdit(); self.txt_file.setReadOnly(True)
         btn_browse = QPushButton("Browse")
@@ -199,10 +198,9 @@ class App(QMainWindow):
 
         self.txt_excel_pass = QLineEdit(); self.txt_excel_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.txt_excel_pass.setPlaceholderText("ใส่รหัสผ่านหากไฟล์ถูกล็อก")
-        self.txt_excel_pass.textChanged.connect(self.update_sheet_dropdown) # ถ้าใส่รหัสผ่านใหม่ ให้ลองดึง Sheet ใหม่
+        self.txt_excel_pass.textChanged.connect(self.update_sheet_dropdown)
         ex_form.addRow("Excel Password:", self.txt_excel_pass)
 
-        # รายการ Module และ Table
         self.combo_module = QComboBox()
         self.combo_module.currentIndexChanged.connect(self.on_module_changed)
         ex_form.addRow("Select Module:", self.combo_module)
@@ -220,16 +218,20 @@ class App(QMainWindow):
 
         # ── Actions ──
         btn_layout = QHBoxLayout()
+        
         self.btn_run = QPushButton("💾 SAVE TO DATABASE")
         self.btn_run.setFixedHeight(50)
         self.btn_run.setStyleSheet("background-color: #0078D7; color: white; font-weight: bold; border-radius: 4px;")
         self.btn_run.clicked.connect(self.start_process)
 
-        self.btn_export_clean = QPushButton("🧹 EXPORT CLEANING LOG")
-        self.btn_export_clean.setFixedHeight(50); self.btn_export_clean.setEnabled(False)
-        self.btn_export_clean.clicked.connect(self.export_cleaning_report)
+        # รวมปุ่ม Export เข้าด้วยกัน
+        self.btn_export_all = QPushButton("📄 EXPORT ALL LOGS")
+        self.btn_export_all.setFixedHeight(50)
+        self.btn_export_all.setEnabled(False) # เปิดให้กดเมื่อทำงานเสร็จ
+        self.btn_export_all.clicked.connect(self.export_all_logs)
 
-        btn_layout.addWidget(self.btn_run, 2); btn_layout.addWidget(self.btn_export_clean, 1)
+        btn_layout.addWidget(self.btn_run, 3)
+        btn_layout.addWidget(self.btn_export_all, 1)
         main_layout.addLayout(btn_layout)
 
         # ── Log Display (Matrix Style) ──
@@ -241,7 +243,7 @@ class App(QMainWindow):
             font-size: 13px;
             border: 1px solid #333;
         """)
-        main_layout.addWidget(QLabel("Process Logs:"))
+        main_layout.addWidget(QLabel("Process Logs (Matrix Console):"))
         main_layout.addWidget(self.log_display)
 
     def load_json_config(self):
@@ -250,23 +252,18 @@ class App(QMainWindow):
             if not os.path.exists(config_path): return
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.config_data = json.load(f)
-
             db_cfg = self.config_data.get('database', {})
             self.db_host.clear()
             hosts = db_cfg.get('host', [])
             self.db_host.addItems(hosts) if isinstance(hosts, list) else self.db_host.addItem(str(hosts))
-            
             self.db_user.setText(db_cfg.get('user', ''))
             self.db_pass.setText(db_cfg.get('password', ''))
-
             self.db_name.clear()
             dbs = db_cfg.get('database', [])
             self.db_name.addItems(dbs) if isinstance(dbs, list) else self.db_name.addItem(str(dbs))
-            
             self.combo_module.clear()
             for m in self.config_data.get('module_config', []):
                 if m.get('enabled', True): self.combo_module.addItem(m.get('module_name'), m)
-
             self.log_display.append("✅ Config JSON loaded successfully.")
         except Exception as e: self.log_display.append(f"❌ Config Error: {str(e)}")
 
@@ -286,7 +283,6 @@ class App(QMainWindow):
         file_path = self.txt_file.text()
         table_cfg = self.combo_table.currentData()
         self.combo_sheet.clear()
-
         actual_sheets = []
         if file_path and os.path.exists(file_path):
             try:
@@ -299,16 +295,13 @@ class App(QMainWindow):
                         office_file.load_key(password=pw)
                         office_file.decrypt(decrypted_data)
                     excel_source = decrypted_data
-                
                 xl = pd.ExcelFile(excel_source)
                 actual_sheets = xl.sheet_names
             except: pass
-
         config_sheets = []
         if table_cfg and 'sheet_name' in table_cfg:
             config_sheets = table_cfg['sheet_name']
             if not isinstance(config_sheets, list): config_sheets = [str(config_sheets)]
-
         if actual_sheets:
             self.combo_sheet.addItems(actual_sheets)
             for cs in config_sheets:
@@ -342,14 +335,16 @@ class App(QMainWindow):
         table_selection = self.combo_table.currentData()
         if not self.txt_file.text() or not mod_cfg:
             QMessageBox.warning(self, "Warning", "Please select file and module."); return
-
         final_table_cfg = table_selection.copy() if isinstance(table_selection, dict) else {
             "table_name": self.combo_table.currentText().split('.')[-1],
             "usecols": None, "skiprows": 0
         }
         final_table_cfg['sheet_name'] = self.combo_sheet.currentText() or 0
         
-        self.btn_run.setEnabled(False); self.btn_export_clean.setEnabled(False); self.log_display.clear()
+        self.btn_run.setEnabled(False)
+        self.btn_export_all.setEnabled(False)
+        self.log_display.clear()
+        
         self.worker = ImportWorker(
             self.get_db_params(), 
             {'path': self.txt_file.text(), 'password': self.txt_excel_pass.text()},
@@ -360,20 +355,52 @@ class App(QMainWindow):
         self.worker.finished.connect(self.on_import_finished); self.worker.start()
 
     def on_import_finished(self, message, report):
-        self.btn_run.setEnabled(True); self.last_cleaning_report = report
+        self.btn_run.setEnabled(True)
+        self.last_cleaning_report = report
         self.log_display.append("-" * 40)
         self.log_display.append(message)
-        if report:
-            self.btn_export_clean.setEnabled(True)
-            self.log_display.append(f"💡 Found {len(report)} cleaning items. You can export detailed report.")
+        # เปิดให้กดปุ่มส่งออกข้อมูลได้
+        self.btn_export_all.setEnabled(True)
         QMessageBox.information(self, "Result", message)
 
-    def export_cleaning_report(self):
-        if not self.last_cleaning_report: return
-        path, _ = QFileDialog.getSaveFileName(self, "Save Report", "cleaning_report.csv", "CSV Files (*.csv)")
-        if path:
-            pd.DataFrame(self.last_cleaning_report).to_csv(path, index=False, encoding='utf-8-sig')
-            QMessageBox.information(self, "Success", "Cleaning report exported.")
+    def export_all_logs(self):
+        """รวมการบันทึก Log และ Cleaning Report ไว้ในปุ่มเดียว"""
+        log_content = self.log_display.toPlainText()
+        if not log_content.strip():
+            QMessageBox.warning(self, "Warning", "No logs to export.")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # ถามหา Path และชื่อไฟล์พื้นฐาน
+        base_path, _ = QFileDialog.getSaveFileName(
+            self, "Save All Logs", f"import_report_{timestamp}", "All Files (*)"
+        )
+
+        if base_path:
+            try:
+                # 1. บันทึก Console Log (.txt)
+                txt_path = base_path if base_path.endswith(".txt") else base_path + ".txt"
+                with open(txt_path, 'w', encoding='utf-8') as f:
+                    f.write(log_content)
+
+                # 2. บันทึก Cleaning CSV (ถ้ามีข้อมูล)
+                csv_saved = False
+                if self.last_cleaning_report:
+                    csv_path = base_path if base_path.endswith(".csv") else base_path + ".csv"
+                    # ป้องกันกรณีชื่อไฟล์ซ้ำกับ .txt
+                    if csv_path == txt_path:
+                        csv_path = txt_path.replace(".txt", "_cleaning.csv")
+                    
+                    pd.DataFrame(self.last_cleaning_report).to_csv(csv_path, index=False, encoding='utf-8-sig')
+                    csv_saved = True
+
+                success_msg = f"Console log saved to: {os.path.basename(txt_path)}"
+                if csv_saved:
+                    success_msg += f"\nCleaning report saved to: {os.path.basename(csv_path)}"
+                
+                QMessageBox.information(self, "Export Success", success_msg)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save logs: {str(e)}")
 
 
 if __name__ == "__main__":
