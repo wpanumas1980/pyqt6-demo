@@ -15,7 +15,7 @@ from PyQt6.QtGui import QFont
 
 
 class ImportWorker(QThread):
-    """Thread สำหรับประมวลผลการ Import ข้อมูล พร้อมระบบบันทึกการ Cleaning"""
+    """Thread สำหรับประมวลผลการ Import ข้อมูล พร้อมระบบบันทึกการ Cleaning แบบละเอียด"""
     finished = pyqtSignal(str, list) # message, cleaning_report
     log_signal = pyqtSignal(str)
 
@@ -48,7 +48,6 @@ class ImportWorker(QThread):
             sheet_to_read = self.table_cfg.get('sheet_name', 0)
             self.log_signal.emit(f"📊 กำลังอ่าน Sheet: {sheet_to_read} (Table: {self.table_cfg.get('table_name')})...")
             
-            # ตรวจสอบว่า Sheet มีอยู่จริงหรือไม่ (กรณีพิมพ์ชื่อเอง)
             xl = pd.ExcelFile(excel_source)
             if isinstance(sheet_to_read, str) and sheet_to_read not in xl.sheet_names:
                 raise ValueError(f"ไม่พบ Sheet ชื่อ '{sheet_to_read}' ในไฟล์ Excel")
@@ -65,22 +64,40 @@ class ImportWorker(QThread):
             row_count = len(df)
             self.log_signal.emit(f"📈 พบข้อมูลทั้งหมด {row_count} แถว")
 
-            # 3. ล้างอักขระพิเศษและเก็บประวัติ (Cleaning)
+            # 3. ล้างอักขระพิเศษและแสดงผลแบบละเอียด
             self.log_signal.emit("🔍 กำลังตรวจสอบและล้างอักขระพิเศษ...")
+            found_count = 0
             for col in df.columns:
                 for idx, val in df[col].items():
                     if isinstance(val, str):
                         cleaned_val = "".join(c for c in val if c.isprintable())
                         if val != cleaned_val:
+                            found_count += 1
+                            excel_row = idx + 2 + self.table_cfg.get('skiprows', 0)
+                            
+                            # สร้างรายละเอียด Log สำหรับแสดงผล (ใช้ repr เพื่อให้เห็น \t, \xa0)
+                            log_detail = (
+                                f"แถวที่ {excel_row}:\n"
+                                f"  คอลัมน์ '{col}':\n"
+                                f"    Original: {repr(val)}\n"
+                                f"    Cleaned:  {repr(cleaned_val)}"
+                            )
+                            self.log_signal.emit(log_detail)
+                            
                             removed = "".join(set(c for c in val if not c.isprintable()))
                             cleaning_report.append({
-                                'Row': idx + 2 + self.table_cfg.get('skiprows', 0), 
+                                'Row': excel_row, 
                                 'Column': col,
                                 'Original_Value': val,
                                 'Cleaned_Value': cleaned_val,
                                 'Removed_Chars_Hex': [hex(ord(c)) for c in removed]
                             })
                             df.at[idx, col] = cleaned_val
+
+            if found_count > 0:
+                self.log_signal.emit(f"⚠️ พบและทำความสะอาดอักขระพิเศษทั้งหมด {found_count} จุด")
+            else:
+                self.log_signal.emit("✅ ไม่พบอักขระพิเศษที่ต้องล้าง")
 
             # 4. เชื่อมต่อ Database
             self.log_signal.emit("💾 กำลังเชื่อมต่อกับ MS SQL Database...")
@@ -168,10 +185,24 @@ class App(QMainWindow):
         db_group.setLayout(db_form)
         main_layout.addWidget(db_group)
 
-        # ── Part 2: Configuration ──
+        # ── Part 2: Configuration & Excel File ──
         ex_group = QGroupBox("2. Configuration & Excel File")
         ex_form = QFormLayout()
 
+        # ย้าย Excel File และ Password ขึ้นมาเป็นอันดับแรกในส่วนที่ 2
+        file_box = QHBoxLayout()
+        self.txt_file = QLineEdit(); self.txt_file.setReadOnly(True)
+        btn_browse = QPushButton("Browse")
+        btn_browse.clicked.connect(self.browse_file)
+        file_box.addWidget(self.txt_file); file_box.addWidget(btn_browse)
+        ex_form.addRow("Excel File:", file_box)
+
+        self.txt_excel_pass = QLineEdit(); self.txt_excel_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.txt_excel_pass.setPlaceholderText("ใส่รหัสผ่านหากไฟล์ถูกล็อก")
+        self.txt_excel_pass.textChanged.connect(self.update_sheet_dropdown) # ถ้าใส่รหัสผ่านใหม่ ให้ลองดึง Sheet ใหม่
+        ex_form.addRow("Excel Password:", self.txt_excel_pass)
+
+        # รายการ Module และ Table
         self.combo_module = QComboBox()
         self.combo_module.currentIndexChanged.connect(self.on_module_changed)
         ex_form.addRow("Select Module:", self.combo_module)
@@ -184,17 +215,6 @@ class App(QMainWindow):
         self.combo_sheet = QComboBox(); self.combo_sheet.setEditable(True)
         ex_form.addRow("Excel Sheet Name:", self.combo_sheet)
 
-        file_box = QHBoxLayout()
-        self.txt_file = QLineEdit(); self.txt_file.setReadOnly(True)
-        btn_browse = QPushButton("Browse")
-        btn_browse.clicked.connect(self.browse_file)
-        file_box.addWidget(self.txt_file); file_box.addWidget(btn_browse)
-        ex_form.addRow("Excel File:", file_box)
-
-        self.txt_excel_pass = QLineEdit(); self.txt_excel_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_excel_pass.setPlaceholderText("ใส่รหัสผ่านหากไฟล์ถูกล็อก")
-        ex_form.addRow("Excel Password:", self.txt_excel_pass)
-
         ex_group.setLayout(ex_form)
         main_layout.addWidget(ex_group)
 
@@ -202,7 +222,7 @@ class App(QMainWindow):
         btn_layout = QHBoxLayout()
         self.btn_run = QPushButton("💾 SAVE TO DATABASE")
         self.btn_run.setFixedHeight(50)
-        self.btn_run.setStyleSheet("background-color: #0078D7; color: white; font-weight: bold;")
+        self.btn_run.setStyleSheet("background-color: #0078D7; color: white; font-weight: bold; border-radius: 4px;")
         self.btn_run.clicked.connect(self.start_process)
 
         self.btn_export_clean = QPushButton("🧹 EXPORT CLEANING LOG")
@@ -212,8 +232,15 @@ class App(QMainWindow):
         btn_layout.addWidget(self.btn_run, 2); btn_layout.addWidget(self.btn_export_clean, 1)
         main_layout.addLayout(btn_layout)
 
+        # ── Log Display (Matrix Style) ──
         self.log_display = QTextEdit(); self.log_display.setReadOnly(True)
-        self.log_display.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: Consolas;")
+        self.log_display.setStyleSheet("""
+            background-color: #000000; 
+            color: #00FF41; 
+            font-family: 'Consolas', 'Courier New', monospace; 
+            font-size: 13px;
+            border: 1px solid #333;
+        """)
         main_layout.addWidget(QLabel("Process Logs:"))
         main_layout.addWidget(self.log_display)
 
@@ -253,19 +280,16 @@ class App(QMainWindow):
         file, _ = QFileDialog.getOpenFileName(self, "Select Excel", "", "Excel Files (*.xlsx *.xls)")
         if file:
             self.txt_file.setText(file)
-            self.update_sheet_dropdown() # เมื่อเลือกไฟล์ใหม่ ให้ดึงรายชื่อ Sheet ทันที
+            self.update_sheet_dropdown()
 
     def update_sheet_dropdown(self):
-        """ดึงรายชื่อ Sheet จริงจากไฟล์ และเปรียบเทียบกับค่าใน Config"""
         file_path = self.txt_file.text()
         table_cfg = self.combo_table.currentData()
         self.combo_sheet.clear()
 
-        # 1. ลองดึงรายชื่อ Sheet จริงจากไฟล์ (ถ้ามีไฟล์แล้ว)
         actual_sheets = []
         if file_path and os.path.exists(file_path):
             try:
-                # ถ้ามีรหัสผ่านต้องถอดรหัสก่อนอ่านรายชื่อ Sheet
                 excel_source = file_path
                 pw = self.txt_excel_pass.text()
                 if pw:
@@ -278,26 +302,20 @@ class App(QMainWindow):
                 
                 xl = pd.ExcelFile(excel_source)
                 actual_sheets = xl.sheet_names
-            except Exception as e:
-                self.log_display.append(f"⚠️ ไม่สามารถอ่านรายชื่อ Sheet จากไฟล์ได้: {str(e)}")
+            except: pass
 
-        # 2. ดึงรายชื่อ Sheet ที่คาดหวังจาก Config
         config_sheets = []
         if table_cfg and 'sheet_name' in table_cfg:
             config_sheets = table_cfg['sheet_name']
             if not isinstance(config_sheets, list): config_sheets = [str(config_sheets)]
 
-        # 3. รวมรายชื่อเข้า Dropdown
-        # ใส่ Sheet ที่มีในไฟล์จริงก่อน
         if actual_sheets:
             self.combo_sheet.addItems(actual_sheets)
-            # ถ้ามี Sheet ใน Config ตรงกับในไฟล์ ให้เลือกตัวนั้นเป็น Default
             for cs in config_sheets:
                 if cs in actual_sheets:
                     self.combo_sheet.setCurrentText(cs)
                     break
         else:
-            # ถ้ายังไม่ได้เลือกไฟล์ หรืออ่านไม่ได้ ให้ใช้ค่าจาก Config ไปก่อน
             self.combo_sheet.addItems(config_sheets)
 
     def get_db_params(self):
@@ -343,10 +361,11 @@ class App(QMainWindow):
 
     def on_import_finished(self, message, report):
         self.btn_run.setEnabled(True); self.last_cleaning_report = report
+        self.log_display.append("-" * 40)
         self.log_display.append(message)
         if report:
             self.btn_export_clean.setEnabled(True)
-            self.log_display.append(f"💡 Found {len(report)} special characters cleaned.")
+            self.log_display.append(f"💡 Found {len(report)} cleaning items. You can export detailed report.")
         QMessageBox.information(self, "Result", message)
 
     def export_cleaning_report(self):
