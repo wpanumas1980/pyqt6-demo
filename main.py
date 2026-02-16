@@ -153,7 +153,7 @@ class TestConnectionWorker(QThread):
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Excel to MS SQL Importer (BSA Enhanced)")
+        self.setWindowTitle("Excel to MS SQL Importer")
         self.setMinimumSize(950, 900)
         self.config_data = {}
         self.last_cleaning_report = []
@@ -225,7 +225,7 @@ class App(QMainWindow):
         self.btn_run.clicked.connect(self.start_process)
 
         # รวมปุ่ม Export เข้าด้วยกัน
-        self.btn_export_all = QPushButton("📄 EXPORT ALL LOGS")
+        self.btn_export_all = QPushButton("📄 EXPORT LOGS")
         self.btn_export_all.setFixedHeight(50)
         self.btn_export_all.setEnabled(False) # เปิดให้กดเมื่อทำงานเสร็จ
         self.btn_export_all.clicked.connect(self.export_all_logs)
