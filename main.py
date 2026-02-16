@@ -333,12 +333,27 @@ class App(QMainWindow):
     def start_process(self):
         mod_cfg = self.combo_module.currentData()
         table_selection = self.combo_table.currentData()
+        
+        # ดึงข้อความปัจจุบันที่แสดงอยู่ในช่อง (รวมถึงที่พิมพ์เองด้วย)
+        current_table_text = self.combo_table.currentText().strip()
+
         if not self.txt_file.text() or not mod_cfg:
-            QMessageBox.warning(self, "Warning", "Please select file and module."); return
-        final_table_cfg = table_selection.copy() if isinstance(table_selection, dict) else {
-            "table_name": self.combo_table.currentText().split('.')[-1],
-            "usecols": None, "skiprows": 0
-        }
+            QMessageBox.warning(self, "Warning", "Please select file and module.")
+            return
+
+        # Logic ใหม่: ตรวจสอบว่าสิ่งที่พิมพ์ ตรงกับค่าใน Config หรือไม่
+        # ถ้าค่าที่พิมพ์ (current_table_text) ไม่ตรงกับ table_name ใน Config เดิม 
+        # หรือถ้าไม่มี Config (เลือกพิมพ์เองตั้งแต่ต้น) ให้สร้าง Config ใหม่จากสิ่งที่พิมพ์ทันที
+        if isinstance(table_selection, dict) and table_selection.get('table_name') == current_table_text:
+            final_table_cfg = table_selection.copy()
+        else:
+            final_table_cfg = {
+                "table_name": current_table_text,
+                "usecols": None, 
+                "skiprows": 0
+            }
+
+        # กำหนด Sheet Name จากค่าที่เลือกหรือพิมพ์ใน dropdown sheet
         final_table_cfg['sheet_name'] = self.combo_sheet.currentText() or 0
         
         self.btn_run.setEnabled(False)
@@ -348,11 +363,14 @@ class App(QMainWindow):
         self.worker = ImportWorker(
             self.get_db_params(), 
             {'path': self.txt_file.text(), 'password': self.txt_excel_pass.text()},
-            mod_cfg.get('module_name'), final_table_cfg, 
-            self.config_data.get('Prefix', 'ERP_ERPCONV'), str(self.config_data.get('revision', ''))
+            mod_cfg.get('module_name'), 
+            final_table_cfg, 
+            self.config_data.get('Prefix', 'ERP_ERPCONV'), 
+            str(self.config_data.get('revision', ''))
         )
         self.worker.log_signal.connect(self.log_display.append)
-        self.worker.finished.connect(self.on_import_finished); self.worker.start()
+        self.worker.finished.connect(self.on_import_finished)
+        self.worker.start()
 
     def on_import_finished(self, message, report):
         self.btn_run.setEnabled(True)
