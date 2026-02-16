@@ -1,6 +1,6 @@
 {
   "database": {
-    "host": "localhost",
+    "host": ["localhost","myhost.dbserver.com"],
     "port": 1433,
     "user": "sa",
     "password": "admin@supersecret123",
@@ -15,6 +15,7 @@
       "tables": [
         {
           "table_name": "EmpPersonalData",
+          "sheet_name": ["Sheet1","PersonalData"],
           "usecols": [
             "EmployeeId",
             "Title TH",
@@ -47,6 +48,7 @@
         },
         {
           "table_name": "EmpAction",
+          "sheet_name": ["Sheet1","EmpAction"],
           "usecols": [
             "EmployeeId",
             "FullName",
@@ -68,6 +70,7 @@
       "tables": [
         {
           "table_name": "EmpContractAssignment",
+          "sheet_name": ["Sheet1","EmpContractAssignment"],
           "usecols": [
             "No.",
             "รหัสพนักงาน",
