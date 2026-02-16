@@ -48,6 +48,11 @@ class ImportWorker(QThread):
             sheet_to_read = self.table_cfg.get('sheet_name', 0)
             self.log_signal.emit(f"📊 กำลังอ่าน Sheet: {sheet_to_read} (Table: {self.table_cfg.get('table_name')})...")
             
+            # ตรวจสอบว่า Sheet มีอยู่จริงหรือไม่ (กรณีพิมพ์ชื่อเอง)
+            xl = pd.ExcelFile(excel_source)
+            if isinstance(sheet_to_read, str) and sheet_to_read not in xl.sheet_names:
+                raise ValueError(f"ไม่พบ Sheet ชื่อ '{sheet_to_read}' ในไฟล์ Excel")
+
             df = pd.read_excel(
                 excel_source,
                 sheet_name=sheet_to_read,
@@ -173,7 +178,7 @@ class App(QMainWindow):
 
         self.combo_table = QComboBox()
         self.combo_table.setEditable(True)
-        self.combo_table.currentIndexChanged.connect(self.on_table_changed)
+        self.combo_table.currentIndexChanged.connect(self.update_sheet_dropdown)
         ex_form.addRow("Destination Table:", self.combo_table)
 
         self.combo_sheet = QComboBox(); self.combo_sheet.setEditable(True)
@@ -187,6 +192,7 @@ class App(QMainWindow):
         ex_form.addRow("Excel File:", file_box)
 
         self.txt_excel_pass = QLineEdit(); self.txt_excel_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.txt_excel_pass.setPlaceholderText("ใส่รหัสผ่านหากไฟล์ถูกล็อก")
         ex_form.addRow("Excel Password:", self.txt_excel_pass)
 
         ex_group.setLayout(ex_form)
@@ -243,16 +249,56 @@ class App(QMainWindow):
         self.combo_table.clear()
         for t in mod_cfg.get('tables', []): self.combo_table.addItem(t.get('table_name'), t)
 
-    def on_table_changed(self):
-        table_cfg = self.combo_table.currentData()
-        self.combo_sheet.clear()
-        if table_cfg and 'sheet_name' in table_cfg:
-            sheets = table_cfg['sheet_name']
-            self.combo_sheet.addItems(sheets) if isinstance(sheets, list) else self.combo_sheet.addItem(str(sheets))
-
     def browse_file(self):
         file, _ = QFileDialog.getOpenFileName(self, "Select Excel", "", "Excel Files (*.xlsx *.xls)")
-        if file: self.txt_file.setText(file)
+        if file:
+            self.txt_file.setText(file)
+            self.update_sheet_dropdown() # เมื่อเลือกไฟล์ใหม่ ให้ดึงรายชื่อ Sheet ทันที
+
+    def update_sheet_dropdown(self):
+        """ดึงรายชื่อ Sheet จริงจากไฟล์ และเปรียบเทียบกับค่าใน Config"""
+        file_path = self.txt_file.text()
+        table_cfg = self.combo_table.currentData()
+        self.combo_sheet.clear()
+
+        # 1. ลองดึงรายชื่อ Sheet จริงจากไฟล์ (ถ้ามีไฟล์แล้ว)
+        actual_sheets = []
+        if file_path and os.path.exists(file_path):
+            try:
+                # ถ้ามีรหัสผ่านต้องถอดรหัสก่อนอ่านรายชื่อ Sheet
+                excel_source = file_path
+                pw = self.txt_excel_pass.text()
+                if pw:
+                    decrypted_data = io.BytesIO()
+                    with open(file_path, "rb") as f:
+                        office_file = msoffcrypto.OfficeFile(f)
+                        office_file.load_key(password=pw)
+                        office_file.decrypt(decrypted_data)
+                    excel_source = decrypted_data
+                
+                xl = pd.ExcelFile(excel_source)
+                actual_sheets = xl.sheet_names
+            except Exception as e:
+                self.log_display.append(f"⚠️ ไม่สามารถอ่านรายชื่อ Sheet จากไฟล์ได้: {str(e)}")
+
+        # 2. ดึงรายชื่อ Sheet ที่คาดหวังจาก Config
+        config_sheets = []
+        if table_cfg and 'sheet_name' in table_cfg:
+            config_sheets = table_cfg['sheet_name']
+            if not isinstance(config_sheets, list): config_sheets = [str(config_sheets)]
+
+        # 3. รวมรายชื่อเข้า Dropdown
+        # ใส่ Sheet ที่มีในไฟล์จริงก่อน
+        if actual_sheets:
+            self.combo_sheet.addItems(actual_sheets)
+            # ถ้ามี Sheet ใน Config ตรงกับในไฟล์ ให้เลือกตัวนั้นเป็น Default
+            for cs in config_sheets:
+                if cs in actual_sheets:
+                    self.combo_sheet.setCurrentText(cs)
+                    break
+        else:
+            # ถ้ายังไม่ได้เลือกไฟล์ หรืออ่านไม่ได้ ให้ใช้ค่าจาก Config ไปก่อน
+            self.combo_sheet.addItems(config_sheets)
 
     def get_db_params(self):
         db_cfg = self.config_data.get('database', {})
@@ -300,7 +346,7 @@ class App(QMainWindow):
         self.log_display.append(message)
         if report:
             self.btn_export_clean.setEnabled(True)
-            self.log_display.append(f"💡 Found {len(report)} special characters cleaned. Click Export Cleaning Log to see details.")
+            self.log_display.append(f"💡 Found {len(report)} special characters cleaned.")
         QMessageBox.information(self, "Result", message)
 
     def export_cleaning_report(self):
